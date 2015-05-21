@@ -79,13 +79,14 @@ protected
     rescue OpenSSL::X509::CertificateError
       raise "Your pem is not a valid file or certificate. (APNS.pem = /path/to/cert.pem)"
 
-    rescue StandardError, Errno::EPIPE
-      raise unless attempts < @retries
-      @ssl.close
-      @sock.close
-
-      attempts += 1
-      retry
+    # TODO: This causes the error "undefined method close for NilClass"
+    # rescue StandardError, Errno::EPIPE
+    #   raise unless attempts < @retries
+    #   @ssl.close
+    #   @sock.close
+    #
+    #   attempts += 1
+    #   retry
     end
 
     # Only force close if not persistent
