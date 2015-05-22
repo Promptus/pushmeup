@@ -3,134 +3,119 @@ require 'openssl'
 require 'json'
 
 module APNS
+  class Application
 
-  @host = 'gateway.sandbox.push.apple.com'
-  @port = 2195
-  # openssl pkcs12 -in mycert.p12 -out client-cert.pem -nodes -clcerts
-  @pem = nil
-  @pass = nil
-  
-  @persistent = false
-  @mutex = Mutex.new
-  @retries = 3 # TODO: check if we really need this
-  
-  @sock = nil
-  @ssl = nil
-  
-  class << self
-    attr_accessor :host, :pem, :port, :pass
-  end
+    #Accessors
+    attr_accessor :host, :pem, :port, :pass, :app_id
 
-  def self.start_persistence
-    @persistent = true
-  end
-  
-  def self.stop_persistence
-    @persistent = false
+    # Init method
+    def initialize(host='gateway.sandbox.push.apple.com', pem=nil, port=2195, pass=nil)
+      @host = host unless host == nil
+      @pem = pem unless pem == nil
+      @port = port unless port == nil
+      @pass = pass unless pass == nil
+      @retries = 3
+    end
+
+    # Send notification 
+    def send_notification(device_token, message)
+      n = APNS::Notification.new(device_token, message)
+      self.send_notifications([n])
+    end
     
-    @ssl.close
-    @sock.close
-  end
-  
-  def self.send_notification(device_token, message)
-    n = APNS::Notification.new(device_token, message)
-    self.send_notifications([n])
-  end
-  
-  def self.send_notifications(notifications)
-    @mutex.synchronize do
+    # Send notifications
+    def send_notifications(notifications)
       self.with_connection do
         notifications.each do |n|
           @ssl.write(n.packaged_notification)
         end
       end
     end
-  end
-  
-  def self.feedback
-    sock, ssl = self.feedback_connection
+    
+    def feedback
+      sock, ssl = self.feedback_connection
 
-    apns_feedback = []
+      apns_feedback = []
 
-    while line = ssl.read(38)   # Read lines from the socket
-      line.strip!
-      f = line.unpack('N1n1H140')
-      apns_feedback << { :timestamp => Time.at(f[0]), :token => f[2] }
+      while line = ssl.read(38)   # Read lines from the socket
+        line.strip!
+        f = line.unpack('N1n1H140')
+        apns_feedback << { :timestamp => Time.at(f[0]), :token => f[2] }
+      end
+
+      ssl.close
+      sock.close
+
+      return apns_feedback
+    end
+    
+    # Connection initialization and notifications sending
+    def with_connection
+      attempts = 1
+      begin      
+        open_socket_and_ssl_if_needed
+        yield
+      rescue StandardError, Errno::EPIPE
+        close_socket_and_ssl
+        return unless attempts < @retries
+        attempts += 1
+        retry
+      end
     end
 
-    ssl.close
-    sock.close
-
-    return apns_feedback
-  end
-  
-protected
-  
-  def self.with_connection
-    attempts = 1
-  
-    begin
-      # If no @ssl is created or if @ssl is closed we need to start it
+    # Open socket and ssl only if they are not already opened
+    def open_socket_and_ssl_if_needed
       if @ssl.nil? || @sock.nil? || @ssl.closed? || @sock.closed?
         @sock, @ssl = self.open_connection
       end
+    end
+
+    # Close socked and ssl only if they are not nil
+    def close_socket_and_ssl
+      @ssl.close unless @ssl.nil?
+      @sock.close unless @sock.nil?
+    end
+
+    protected
+
+    def open_connection
+      raise "The certificate data (pem) is missing" unless self.pem
+      
+      context      = OpenSSL::SSL::SSLContext.new
+      context.cert = OpenSSL::X509::Certificate.new(certificate_data)
+      context.key  = OpenSSL::PKey::RSA.new(certificate_data, self.pass)
+
+      sock         = TCPSocket.new(self.host, self.port)
+      ssl          = OpenSSL::SSL::SSLSocket.new(sock,context)
+      ssl.connect
+
+      return sock, ssl
+    end
     
-      yield
-    rescue OpenSSL::X509::CertificateError
-      raise "Your pem is not a valid file or certificate. (APNS.pem = /path/to/cert.pem)"
-
-    # TODO: This causes the error "undefined method close for NilClass"
-    # rescue StandardError, Errno::EPIPE
-    #   raise unless attempts < @retries
-    #   @ssl.close
-    #   @sock.close
-    #
-    #   attempts += 1
-    #   retry
-    end
-
-    # Only force close if not persistent
-    unless @persistent
-      @ssl.close
-      @ssl = nil
-      @sock.close
-      @sock = nil
-    end
-  end
-  
-  def self.open_connection
-    sock         = TCPSocket.new(self.host, self.port)
-    ssl          = OpenSSL::SSL::SSLSocket.new(sock,context)
-    ssl.connect
-
-    return sock, ssl
-  end
-  
-  def self.feedback_connection
-    fhost = self.host.gsub('gateway','feedback')
-
-    sock         = TCPSocket.new(fhost, 2196)
-    ssl          = OpenSSL::SSL::SSLSocket.new(sock, context)
-    ssl.connect
-
-    return sock, ssl
-  end
-
-  def self.certificate
-    @certificate ||= begin
-      if File.file?(@pem)
-        File.read(@pem)
-      else
-        @pem
+    def certificate_data
+      @certificate ||= begin
+        if File.file?(@pem)
+          File.read(@pem)
+        else
+          @pem
+        end
       end
     end
-  end
+    
+    def feedback_connection
+      raise "The certificate data (pem) is missing" unless self.pem
+      
+      context      = OpenSSL::SSL::SSLContext.new
+      context.cert = OpenSSL::X509::Certificate.new(certificate_data)
+      context.key  = OpenSSL::PKey::RSA.new(certificate_data, self.pass)
+      
+      fhost = self.host.gsub('gateway','feedback')
+      
+      sock         = TCPSocket.new(fhost, 2196)
+      ssl          = OpenSSL::SSL::SSLSocket.new(sock, context)
+      ssl.connect
 
-  def self.context
-    @context ||= OpenSSL::SSL::SSLContext.new.tap do |context|
-      context.cert = OpenSSL::X509::Certificate.new(certificate)
-      context.key  = OpenSSL::PKey::RSA.new(certificate, self.pass)
+      return sock, ssl
     end
   end
-
 end
