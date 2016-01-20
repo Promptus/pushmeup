@@ -51,16 +51,8 @@ module APNS
     
     # Connection initialization and notifications sending
     def with_connection
-      attempts = 1
-      begin      
-        open_socket_and_ssl_if_needed
-        yield
-      rescue StandardError, Errno::EPIPE
-        close_socket_and_ssl
-        return unless attempts < @retries
-        attempts += 1
-        retry
-      end
+      open_socket_and_ssl_if_needed
+      yield
     end
 
     # Open socket and ssl only if they are not already opened
