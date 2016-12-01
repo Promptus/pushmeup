@@ -27,12 +27,7 @@ module APNS
     end
 
     def packaged_message
-      aps = {'aps'=> {} }
-      aps['aps']['alert'] = self.alert if self.alert
-      aps['aps']['badge'] = self.badge if self.badge
-      aps['aps']['sound'] = self.sound if self.sound
-      aps.merge!(self.other) if self.other
-      aps.to_json.gsub(/\\u([\da-fA-F]{4})/) {|m| [$1].pack("H*").unpack("n*").pack("U*")}
+      self.to_json.gsub(/\\u([\da-fA-F]{4})/) {|m| [$1].pack("H*").unpack("n*").pack("U*")}
     end
 
     def ==(that)
@@ -41,6 +36,15 @@ module APNS
       badge == that.badge &&
       sound == that.sound &&
       other == that.other
+    end
+
+    def to_json
+      aps = {'aps'=> {} }
+      aps['aps']['alert'] = self.alert if self.alert
+      aps['aps']['badge'] = self.badge if self.badge
+      aps['aps']['sound'] = self.sound if self.sound
+      aps.merge!(self.other) if self.other
+      aps.to_json
     end
 
   end
