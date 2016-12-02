@@ -96,12 +96,6 @@ module APNS
         @ssl.print bytes
         @ssl.flush
       end
-      @conn.on(:frame_received) do |frame|
-        puts "Received frame: #{frame.inspect}"
-      end
-      @conn.on(:frame_sent) do |frame|
-        puts "Sent frame: #{frame.inspect}"
-      end
     end
 
     def jwt_token
