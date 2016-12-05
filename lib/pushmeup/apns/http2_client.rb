@@ -11,7 +11,7 @@ module APNS
 
     attr_reader :host, :port, :key_id, :team_id
 
-    def initialize(auth_key, key_id, team_id, app_id, mode = :development, port = 443)
+    def initialize(auth_key, key_id, team_id, mode = :development, port = 443)
       check_openssl_version
       @mode = mode
       @host = production? ? 'api.push.apple.com' : 'api.development.push.apple.com'
@@ -19,27 +19,26 @@ module APNS
       @auth_key = auth_key.is_a?(String) ? OpenSSL::PKey::EC.new(auth_key) : auth_key
       @key_id = key_id
       @team_id = team_id
-      @app_id = app_id
     end
 
     def production?
       @mode == :production
     end
 
-    def send_notification(device_token, message)
-      send_notifications([APNS::Notification.new(device_token, message)])
+    def send_notification(device_token, bundle_identifier, message)
+      send_notifications([APNS::Notification.new(device_token, message)], bundle_identifier)
     end
 
-    def send_notifications(notifications)
+    def send_notifications(notifications, bundle_identifier)
       @queue = notifications
-      send_next_notification
+      send_next_notification(bundle_identifier)
     end
 
-    def send_next_notification
+    def send_next_notification(bundle_identifier)
       with_connection do
         if notification = @queue.pop
           stream = @conn.new_stream
-          stream.on(:close) { send_next_notification }
+          stream.on(:close) { send_next_notification(bundle_identifier) }
           json = notification.to_json
           headers = {
             ':scheme' => 'https',
@@ -47,7 +46,7 @@ module APNS
             ':path' => "/3/device/#{notification.device_token}",
             'authorization' => "bearer #{jwt_token}",
             'content-type' => 'application/json',
-            'apns-topic' => @app_id,
+            'apns-topic' => bundle_identifier,
             'content-length' => json.bytesize.to_s # should be less than or equal to 4096 bytes
           }
           stream.headers(headers, end_stream: false)
