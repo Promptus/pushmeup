@@ -25,6 +25,7 @@ Gem::Specification.new do |s|
   s.executables       = `git ls-files -- bin/*`.split("\n").map{ |f| File.basename(f) }
 
   s.require_paths = ["lib"]
+  s.required_ruby_version = '~> 2.1'
 
   s.add_dependency 'httparty'
   s.add_dependency 'json'
