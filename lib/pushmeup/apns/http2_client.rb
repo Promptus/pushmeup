@@ -12,11 +12,10 @@ module APNS
 
     attr_reader :host, :port, :key_id, :team_id
 
-    def initialize(auth_key, key_id, team_id, mode = :development, port = 443)
+    def initialize(auth_key, key_id, team_id, mode = :development)
       check_openssl_version
       @mode = mode
       @host = production? ? 'api.push.apple.com' : 'api.development.push.apple.com'
-      @port = port
       @auth_key = auth_key.is_a?(String) ? OpenSSL::PKey::EC.new(auth_key) : auth_key
       @key_id = key_id
       @team_id = team_id
