@@ -2,7 +2,8 @@
 require 'socket'
 require 'openssl'
 require 'json'
-require 'http/2'
+require 'net-http2'
+
 require 'jwt'
 
 module APNS
@@ -19,6 +20,7 @@ module APNS
       @auth_key = auth_key.is_a?(String) ? OpenSSL::PKey::EC.new(auth_key) : auth_key
       @key_id = key_id
       @team_id = team_id
+      @client = NetHttp2::Client.new("https://#{@host}")
     end
 
     def production?
@@ -30,71 +32,23 @@ module APNS
     end
 
     def send_notifications(notifications, bundle_identifier)
-      @queue = notifications
-      send_next_notification(bundle_identifier)
-    end
-
-    def send_next_notification(bundle_identifier)
-      with_connection do
-        if notification = @queue.pop
-          stream = @conn.new_stream
-          stream.on(:close) { send_next_notification(bundle_identifier) }
-          json = notification.to_json
-          headers = {
-            ':scheme' => 'https',
-            ':method' => 'POST',
-            ':path' => "/3/device/#{notification.device_token}",
-            'authorization' => "bearer #{jwt_token}",
-            'content-type' => 'application/json',
-            'apns-topic' => bundle_identifier,
-            'content-length' => json.bytesize.to_s # should be less than or equal to 4096 bytes
-          }
-          stream.headers(headers, end_stream: false)
-          stream.data(json)
-          while !@ssl.closed? && !@ssl.eof?
-            data = @ssl.read_nonblock(1024)
-            begin
-              @conn << data
-            rescue => e
-              close_socket_and_ssl
-              raise
-            end
-          end
-        else
-          close_socket_and_ssl
-        end
+      notifications.each do |notification|
+        path = "/3/device/#{notification.device_token}"
+        request = @client.prepare_request(:post, path, headers: headers(bundle_identifier), body: notification.to_json)
+        @client.call_async(request)
       end
-    end
-
-    def with_connection
-      if @ssl.nil? || @ssl.closed?
-        open_connection
-      end
-      yield
-    end
-
-    # Close socked and ssl only if they are not nil
-    def close_socket_and_ssl
-      @ssl.close unless @ssl.nil?
-      @sock.close unless @sock.nil?
+      @client.join
+      @client.close
     end
 
     protected
 
-    def open_connection
-      raise "The server auth key (pem) is missing" unless @auth_key
-      context = OpenSSL::SSL::SSLContext.new
-      context.verify_mode = OpenSSL::SSL::VERIFY_NONE
-      @sock = TCPSocket.new(@host, @port)
-      @ssl = OpenSSL::SSL::SSLSocket.new(@sock, context)
-      @ssl.sync_close = true
-      @ssl.connect
-
-      @conn = HTTP2::Client.new
-      @conn.on(:frame) do |bytes|
-        @ssl.print bytes
-        @ssl.flush
-      end
+    def headers(bundle_identifier)
+      {
+        'authorization' => "bearer #{jwt_token}",
+        'content-type' => 'application/json',
+        'apns-topic' => bundle_identifier,
+      }
     end
 
     def jwt_token
