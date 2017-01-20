@@ -35,8 +35,11 @@ module APNS
         path = "/3/device/#{notification.device_token}"
         request = @client.prepare_request(:post, path, headers: headers(bundle_identifier), body: notification.to_json)
         @client.call_async(request)
+        @client.join
       end
-      @client.join
+    end
+
+    def close_socket_and_ssl
       @client.close
     end
 
