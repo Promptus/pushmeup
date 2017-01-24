@@ -30,16 +30,18 @@ module APNS
       send_notifications([APNS::Notification.new(device_token, message)], bundle_identifier)
     end
 
-    def send_notifications(notifications, bundle_identifier)
+    def send_notifications(notifications, bundle_identifier, close_connection = true)
+      results = {}
       notifications.each do |notification|
         path = "/3/device/#{notification.device_token}"
-        request = @client.prepare_request(:post, path, headers: headers(bundle_identifier), body: notification.to_json)
-        @client.call_async(request)
-        @client.join
+        res = @client.call(:post, path, headers: headers(bundle_identifier), body: notification.to_json)
+        results[notification.device_token] = res.body if !res.body.nil? && res.body.strip != ''
       end
+      @client.close if close_connection
+      results
     end
 
-    def close_socket_and_ssl
+    def close
       @client.close
     end
 
