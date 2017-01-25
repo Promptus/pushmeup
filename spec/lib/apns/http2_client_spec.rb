@@ -18,7 +18,7 @@ tp851pHoPmPwGe7coEYZmtmNkoPNqNsshg==
     { :alert => "Test" }
   end
 
-  let(:client) { APNS::Http2Client.new(auth_key, key_id, team_id, mode, 443) }
+  let(:client) { APNS::Http2Client.new(auth_key, key_id, team_id, mode) }
 
   it 'should raise if the openssl version is 0.x' do
     stub_const("OpenSSL::OPENSSL_VERSION", "OpenSSL 0.9.8zh 14 Jan 2016")

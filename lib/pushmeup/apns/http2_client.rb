@@ -2,7 +2,8 @@
 require 'socket'
 require 'openssl'
 require 'json'
-require 'http/2'
+require 'net-http2'
+
 require 'jwt'
 
 module APNS
@@ -11,14 +12,14 @@ module APNS
 
     attr_reader :host, :port, :key_id, :team_id
 
-    def initialize(auth_key, key_id, team_id, mode = :development, port = 443)
+    def initialize(auth_key, key_id, team_id, mode = :development)
       check_openssl_version
       @mode = mode
       @host = production? ? 'api.push.apple.com' : 'api.development.push.apple.com'
-      @port = port
       @auth_key = auth_key.is_a?(String) ? OpenSSL::PKey::EC.new(auth_key) : auth_key
       @key_id = key_id
       @team_id = team_id
+      @client = NetHttp2::Client.new("https://#{@host}")
     end
 
     def production?
@@ -29,72 +30,29 @@ module APNS
       send_notifications([APNS::Notification.new(device_token, message)], bundle_identifier)
     end
 
-    def send_notifications(notifications, bundle_identifier)
-      @queue = notifications
-      send_next_notification(bundle_identifier)
-    end
-
-    def send_next_notification(bundle_identifier)
-      with_connection do
-        if notification = @queue.pop
-          stream = @conn.new_stream
-          stream.on(:close) { send_next_notification(bundle_identifier) }
-          json = notification.to_json
-          headers = {
-            ':scheme' => 'https',
-            ':method' => 'POST',
-            ':path' => "/3/device/#{notification.device_token}",
-            'authorization' => "bearer #{jwt_token}",
-            'content-type' => 'application/json',
-            'apns-topic' => bundle_identifier,
-            'content-length' => json.bytesize.to_s # should be less than or equal to 4096 bytes
-          }
-          stream.headers(headers, end_stream: false)
-          stream.data(json)
-          while !@ssl.closed? && !@ssl.eof?
-            data = @ssl.read_nonblock(1024)
-            begin
-              @conn << data
-            rescue => e
-              close_socket_and_ssl
-              raise
-            end
-          end
-        else
-          close_socket_and_ssl
-        end
+    def send_notifications(notifications, bundle_identifier, close_connection = true)
+      results = {}
+      notifications.each do |notification|
+        path = "/3/device/#{notification.device_token}"
+        res = @client.call(:post, path, headers: headers(bundle_identifier), body: notification.to_json)
+        results[notification.device_token] = res.body if !res.body.nil? && res.body.strip != ''
       end
+      @client.close if close_connection
+      results
     end
 
-    def with_connection
-      if @ssl.nil? || @ssl.closed?
-        open_connection
-      end
-      yield
-    end
-
-    # Close socked and ssl only if they are not nil
-    def close_socket_and_ssl
-      @ssl.close unless @ssl.nil?
-      @sock.close unless @sock.nil?
+    def close
+      @client.close
     end
 
     protected
 
-    def open_connection
-      raise "The server auth key (pem) is missing" unless @auth_key
-      context = OpenSSL::SSL::SSLContext.new
-      context.verify_mode = OpenSSL::SSL::VERIFY_NONE
-      @sock = TCPSocket.new(@host, @port)
-      @ssl = OpenSSL::SSL::SSLSocket.new(@sock, context)
-      @ssl.sync_close = true
-      @ssl.connect
-
-      @conn = HTTP2::Client.new
-      @conn.on(:frame) do |bytes|
-        @ssl.print bytes
-        @ssl.flush
-      end
+    def headers(bundle_identifier)
+      {
+        'authorization' => "bearer #{jwt_token}",
+        'content-type' => 'application/json',
+        'apns-topic' => bundle_identifier,
+      }
     end
 
     def jwt_token
