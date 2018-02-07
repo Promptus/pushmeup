@@ -36,9 +36,9 @@ module APNS
         path = "/3/device/#{notification.device_token}"
         h = headers(bundle_identifier)
         b = notification.to_json
-        logger.info("POSTing single APNS notification: " + {path: path, headers: h, body: b}.inspect) if logger
+        logger.info("POSTing single APNS notification for #{notification.device_token}: " + {path: path, headers: h, body: b}.inspect) if logger
         res = @client.call(:post, path, headers: h, body: b)
-        logger.info("Received single APNS notification response: " + {status: res.status, headers: res.headers, body: res.body}.inspect) if logger
+        logger.info("Received single APNS notification response for #{notification.device_token}: " + {status: res.status, headers: res.headers, body: res.body}.inspect) if logger
         results[notification.device_token] = res.body if !res.body.nil? && res.body.strip != ''
       end
       @client.close if close_connection
