@@ -12,7 +12,7 @@ module APNS
 
     attr_reader :host, :port, :key_id, :team_id
 
-    def initialize(auth_key, key_id, team_id, mode = :development)
+    def initialize(auth_key, key_id, team_id, mode = :development, error_callback = nil)
       check_openssl_version
       @mode = mode
       @host = production? ? 'api.push.apple.com' : 'api.development.push.apple.com'
@@ -20,6 +20,11 @@ module APNS
       @key_id = key_id
       @team_id = team_id
       @client = NetHttp2::Client.new("https://#{@host}")
+      if error_callback
+        @client.on(:error) do |exception|
+          error_callback.call(exception)
+        end
+      end
     end
 
     def production?
