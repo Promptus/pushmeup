@@ -30,7 +30,7 @@ Gem::Specification.new do |s|
   s.add_dependency 'httparty'
   s.add_dependency 'json'
   s.add_dependency 'jwt', '~> 1.5.6'
-  s.add_dependency 'net-http2', '~> 0.16.0'
+  s.add_dependency 'net-http2', '~> 0.18.0'
 
   s.add_development_dependency 'rake'
   s.add_development_dependency 'rspec'
