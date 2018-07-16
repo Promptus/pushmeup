@@ -41,11 +41,13 @@ module APNS
         path = "/3/device/#{notification.device_token}"
         h = headers(bundle_identifier)
         b = notification.to_json
-        logger.info("POSTing single APNS notification for #{notification.device_token}: " + {path: path, headers: h, body: b}.inspect) if logger
-        res = @client.call(:post, path, headers: h, body: b)
-        logger.info("Received single APNS notification response for #{notification.device_token}: " + {status: res.status, headers: res.headers, body: res.body}.inspect) if logger
-        results[notification.device_token] = res.body if !res.body.nil? && res.body.strip != ''
+        logger.info("Preparing async APNS notification for #{notification.device_token}: " + {path: path, headers: h, body: b}.inspect) if logger
+        request = @client.prepare_request(:post, path, headers: h, body: b)
+        @client.call_async(request)
       end
+      logger.info("Waiting for async APNS calls to finish") if logger
+      @client.join
+      logger.info("Closing APNS connection") if logger and close_connection
       @client.close if close_connection
       results
     end
